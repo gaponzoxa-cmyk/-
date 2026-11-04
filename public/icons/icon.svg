@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#2f7d32"/>
+  <path d="M318 92c-64 6-110 52-112 118 62-2 108-48 112-118z" fill="#a5d6a7"/>
+  <text x="256" y="400" font-family="Arial, Helvetica, sans-serif" font-size="300" font-weight="700" fill="#fff" text-anchor="middle">₴</text>
+</svg>

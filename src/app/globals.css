@@ -1,0 +1,136 @@
+@import "tailwindcss";
+
+/* Цвета приложения. Светлая тема по умолчанию, тёмная — по настройке телефона. */
+:root {
+  --bg: #f6f7f4;
+  --card: #ffffff;
+  --fg: #1a1d18;
+  --muted: #646b5f;
+  --line: #e2e5dd;
+  --primary: #2f7d32;
+  --primary-fg: #ffffff;
+  --good: #2f7d32;
+  --bad: #c62828;
+  --warn: #b26a00;
+  --warn-bg: #fff4e0;
+  --bad-bg: #fdecea;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111410;
+    --card: #1b1f19;
+    --fg: #eef1ea;
+    --muted: #9aa392;
+    --line: #2d3329;
+    --primary: #5fbf63;
+    --primary-fg: #0d150d;
+    --good: #6fd273;
+    --bad: #ff7b72;
+    --warn: #ffb74d;
+    --warn-bg: #3a2b10;
+    --bad-bg: #3b1716;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-card: var(--card);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-primary: var(--primary);
+  --color-good: var(--good);
+  --color-bad: var(--bad);
+  --color-warn: var(--warn);
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--fg);
+}
+body {
+  font-family: var(--font-sans);
+  font-size: 17px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Все числа — моноширинные цифры, чтобы суммы стояли ровно. */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+@layer components {
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 16px;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 52px;
+    padding: 0 20px;
+    border-radius: 14px;
+    font-weight: 600;
+    font-size: 18px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--fg);
+    touch-action: manipulation;
+  }
+  .btn:disabled {
+    opacity: 0.6;
+  }
+  .btn-primary {
+    background: var(--primary);
+    color: var(--primary-fg);
+    border-color: transparent;
+  }
+  .btn-icon {
+    min-width: 52px;
+    padding: 0;
+    font-size: 24px;
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 15px;
+    color: var(--muted);
+  }
+  .field input,
+  .field select,
+  .field textarea {
+    min-height: 52px;
+    padding: 0 14px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--fg);
+    font-size: 20px;
+  }
+  .field input:focus {
+    outline: 2px solid var(--primary);
+    outline-offset: 1px;
+  }
+  .alert {
+    border-radius: 12px;
+    padding: 12px 14px;
+    font-size: 16px;
+  }
+  .alert-error {
+    background: var(--bad-bg);
+    color: var(--bad);
+  }
+  .alert-warn {
+    background: var(--warn-bg);
+    color: var(--warn);
+  }
+}
