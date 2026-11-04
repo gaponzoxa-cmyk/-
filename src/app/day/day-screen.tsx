@@ -1,85 +1,124 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
-import { canSeeCosts, useApp } from "@/components/session";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { canEnter, canSeeCosts, useApp } from "@/components/session";
+import { Shell, useQueue } from "@/components/shell";
+import {
+  loadDay,
+  loadDirectory,
+  PAY_LABEL,
+  type DayData,
+  type Directory,
+  type Expense,
+  type Purchase,
+} from "@/lib/data";
 import { addDays, formatDayLong, isIsoDate, kyivToday } from "@/lib/dates";
 import { humanError } from "@/lib/errors";
-import { formatMoney, reconcile } from "@/lib/money";
-import { supabase } from "@/lib/supabase";
+import { formatMoney, formatPct, formatPrice, formatQty, markupPct, reconcile, UNIT_LABEL } from "@/lib/money";
+import { CashSheet, ExpenseSheet, WriteoffSheet } from "./other-sheets";
+import { PurchaseSheet } from "./purchase-sheet";
 
-type DayTotals = {
-  purchase_count: number;
-  buy_kop: number;
-  sell_kop: number;
-  profit_kop: number;
-  paid_suppliers_cash_kop: number;
-  expenses_kop: number;
-  expenses_cash_kop: number;
-  writeoffs_kop: number;
-  sold_on_credit_kop: number;
-  debt_repaid_kop: number;
-  cash_evening_kop: number | null;
-  terminal_kop: number | null;
-  cash_morning_kop: number;
-  from_card_kop: number;
-  taken_by_owner_kop: number;
-  cash_entered: boolean;
-};
+type Open =
+  | { kind: "purchase"; editing: Purchase | null }
+  | { kind: "cash" }
+  | { kind: "expense"; editing: Expense | null }
+  | { kind: "writeoff" }
+  | null;
 
 export function DayScreen() {
-  const { shop, signOut, session } = useApp();
+  const { shop } = useApp();
   const params = useSearchParams();
   const router = useRouter();
   const today = kyivToday();
   const raw = params.get("d");
   const day = raw && isIsoDate(raw) ? raw : today;
+  const seesCosts = canSeeCosts(shop.role);
+  const enters = canEnter(shop.role);
+  const isOwner = shop.role === "owner";
 
   const go = useCallback(
     (d: string) => router.replace(d === today ? "/" : `/?d=${d}`, { scroll: false }),
     [router, today],
   );
 
-  // результат загрузки помечен ключом (магазин+день): пока ключ не совпал — «загрузка»
+  const [dir, setDir] = useState<Directory | null>(null);
+  const [data, setData] = useState<{ key: string; d: DayData; offline: boolean } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState<Open>(null);
   const key = `${shop.id}:${day}`;
-  const [loaded, setLoaded] = useState<{ key: string; totals: DayTotals | null; error: string | null }>();
-  const totals = loaded?.key === key ? loaded.totals : undefined;
-  const error = loaded?.key === key ? loaded.error : null;
-  const seesCosts = canSeeCosts(shop.role);
+  const reqRef = useRef(0);
+
+  const reload = useCallback(
+    (localOnly: boolean) => {
+      const req = ++reqRef.current;
+      loadDay(shop.id, day, seesCosts, localOnly)
+        .then((r) => {
+          if (req !== reqRef.current) return;
+          setData({ key, d: r, offline: r.offline });
+          setError(null);
+        })
+        .catch((e) => req === reqRef.current && setError(humanError(e)));
+    },
+    [shop.id, day, seesCosts, key],
+  );
 
   useEffect(() => {
     let cancelled = false;
-    supabase()
-      .from("day_totals")
-      .select("*")
-      .eq("shop_id", shop.id)
-      .eq("day", day)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        setLoaded({
-          key,
-          totals: error ? null : ((data as DayTotals | null) ?? null),
-          error: error ? humanError(error) : null,
-        });
-      });
+    loadDirectory(shop.id, seesCosts, kyivToday())
+      .then((d) => !cancelled && setDir(d))
+      .catch((e) => !cancelled && setError(humanError(e)));
     return () => {
       cancelled = true;
     };
-  }, [shop.id, day, key]);
+  }, [shop.id, seesCosts]);
 
-  const t = totals ?? null;
+  useEffect(() => {
+    reload(false);
+  }, [reload]);
+
+  // когда очередь опустела — перечитываем с сервера (там точные суммы)
+  const { pending } = useQueue();
+  const hadPending = useRef(false);
+  useEffect(() => {
+    if (pending.length > 0) hadPending.current = true;
+    else if (hadPending.current) {
+      hadPending.current = false;
+      reload(false);
+      loadDirectory(shop.id, seesCosts, kyivToday()).then(setDir).catch(() => {});
+    }
+  }, [pending.length, reload, shop.id, seesCosts]);
+
+  const d = data?.key === key ? data.d : null;
+  const afterChange = () => reload(true);
+
+  // итоги дня — те же формулы, что и в базе (lib/money.ts)
+  const buy = d?.purchases.reduce((a, p) => a + (p.buy_sum_kop ?? 0), 0) ?? 0;
+  const sell = d?.purchases.reduce((a, p) => a + p.sell_sum_kop, 0) ?? 0;
+  const paidCash = d?.purchases.reduce((a, p) => a + p.paid_cash_kop, 0) ?? 0;
+  const expenses = d?.expenses.reduce((a, e) => a + e.amount_kop, 0) ?? 0;
+  const expensesCash = d?.expenses.filter((e) => e.from_register).reduce((a, e) => a + e.amount_kop, 0) ?? 0;
+  const writeoffs = d?.writeoffs.reduce((a, w) => a + (w.sum_kop ?? 0), 0) ?? 0;
+  const cashEntered = d?.cash?.cash_evening_kop != null && d?.cash?.terminal_kop != null;
+  const rec =
+    d && cashEntered
+      ? reconcile(
+          {
+            cashEvening: d.cash!.cash_evening_kop!,
+            cashMorning: d.cash!.cash_morning_kop ?? d.prevEvening ?? 0,
+            terminal: d.cash!.terminal_kop!,
+            fromCard: d.cash!.from_card_kop,
+            takenByOwner: d.cash!.taken_by_owner_kop,
+            paidSuppliersCash: paidCash,
+            expensesCash,
+          },
+          { sellTotal: sell, soldOnCredit: 0, debtRepaid: 0 },
+        )
+      : null;
 
   return (
-    <main className="mx-auto w-full max-w-md px-4 pb-24 pt-[max(12px,env(safe-area-inset-top))]">
-      <header className="flex items-center justify-between py-2">
-        <span className="font-semibold">{shop.name}</span>
-        <button className="text-sm text-muted underline" onClick={signOut} title={session.user.email}>
-          Выйти
-        </button>
-      </header>
-
-      <nav className="mt-2 flex items-center gap-2" aria-label="Выбор дня">
+    <Shell>
+      <nav className="flex items-center gap-2" aria-label="Выбор дня">
         <button className="btn btn-icon" onClick={() => go(addDays(day, -1))} aria-label="Предыдущий день">
           ‹
         </button>
@@ -96,84 +135,227 @@ export function DayScreen() {
         </button>
       </nav>
 
-      {error && <p className="alert alert-error mt-4">{error}</p>}
+      {error && <p className="alert alert-error mt-3">{error}</p>}
+      {data?.offline && <p className="alert alert-warn mt-3">Нет связи — показаны сохранённые данные.</p>}
 
       {seesCosts && (
         <section className="card mt-4" aria-label="Итоги дня">
           <div className="text-sm text-muted">Заработок за день</div>
-          <div className="num text-4xl font-bold text-good">
-            {totals === undefined ? "…" : formatMoney(t?.profit_kop ?? 0)}
+          <div className={`num text-4xl font-bold ${sell - buy < 0 ? "text-bad" : "text-good"}`}>
+            {d ? formatMoney(sell - buy) : "…"}
           </div>
-          <dl className="num mt-4 flex flex-col gap-1.5 text-base">
-            <Row label="Закупка" value={t?.buy_kop} />
-            <Row label="Приход" value={t?.sell_kop} />
-            <Row label="Расходы" value={t?.expenses_kop} />
-            <Row label="Списание" value={t?.writeoffs_kop} />
-            <div className="flex justify-between text-muted">
-              <span>Позиций</span>
-              <span>{t?.purchase_count ?? 0}</span>
-            </div>
+          <dl className="num mt-3 flex flex-col gap-1 text-base">
+            <Row label="Закупка" value={formatMoney(buy)} />
+            <Row label="Приход" value={formatMoney(sell)} />
+            <Row label="Расходы" value={formatMoney(expenses)} muted />
+            <Row label="Списание" value={formatMoney(writeoffs)} muted />
+            <Row label="Позиций" value={String(d?.purchases.length ?? 0)} muted />
           </dl>
-          <CashSummary t={t} />
+          {d && !cashEntered && <p className="alert alert-warn mt-3">Касса за этот день не введена.</p>}
+          {rec && (
+            <div className="num mt-3 border-t border-line pt-3">
+              <Row label="Касса: нал / терминал" value={`${formatMoney(rec.revenueCash)} / ${formatMoney(d!.cash!.terminal_kop!)}`} />
+              <Row label="Касса всего" value={formatMoney(rec.revenueTotal)} />
+              <div className="flex justify-between gap-2">
+                <dt className="text-muted">Сверка с приходом</dt>
+                <dd className={`font-bold ${rec.diff < 0 ? "text-bad" : "text-good"}`}>
+                  {rec.diff > 0 ? "+" : ""}
+                  {formatMoney(rec.diff)} ({rec.diffPct !== null ? formatPct(rec.diffPct) : "—"})
+                </dd>
+              </div>
+            </div>
+          )}
         </section>
       )}
 
-      <section className="card mt-4">
-        <h2 className="text-lg font-semibold">Приход товара</h2>
-        <p className="mt-1 text-muted">Ввод позиций появится на этапе 1.</p>
+      {/* ───── Приход ───── */}
+      <section className="mt-4">
+        <div className="flex items-baseline justify-between px-1">
+          <h2 className="text-lg font-bold">Приход товара</h2>
+          <span className="text-sm text-muted">{d?.purchases.length ?? 0} поз.</span>
+        </div>
+        {enters && (
+          <button
+            className="btn btn-primary mt-2 w-full"
+            disabled={!dir}
+            onClick={() => setOpen({ kind: "purchase", editing: null })}
+          >
+            + Добавить позицию
+          </button>
+        )}
+        <ul className="mt-2 flex flex-col gap-2">
+          {d?.purchases.map((p) => {
+            const m = p.buy_price_kop !== null ? markupPct(p.buy_price_kop, p.sell_price_kop) : null;
+            const low = m !== null && m < shop.low_markup_pct;
+            return (
+              <li key={p.id}>
+                <button
+                  className={`card w-full text-left ${low ? "!border-warn" : ""}`}
+                  disabled={!isOwner}
+                  onClick={() => isOwner && dir && setOpen({ kind: "purchase", editing: p })}
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-lg font-semibold">
+                      {p.pending && <span title="Ждёт отправки">⏳ </span>}
+                      {p.product_name}
+                    </span>
+                    {p.buy_sum_kop !== null && (
+                      <span className="num font-bold text-good">{formatMoney(p.sell_sum_kop - p.buy_sum_kop)}</span>
+                    )}
+                  </div>
+                  <div className="num mt-1 text-sm text-muted">
+                    {formatQty(p.qty)} {UNIT_LABEL[p.unit]}
+                    {p.buy_price_kop !== null ? ` × ${formatPrice(p.buy_price_kop)} → ${formatPrice(p.sell_price_kop)} ₴` : ` · продажа ${formatPrice(p.sell_price_kop)} ₴`}
+                    {m !== null && <span className={low ? "font-bold text-warn" : ""}> · {formatPct(m, 0)}</span>}
+                  </div>
+                  {seesCosts && (
+                    <div className="num text-sm text-muted">
+                      {formatMoney(p.buy_sum_kop ?? 0)} → {formatMoney(p.sell_sum_kop)}
+                      {p.supplier_name && ` · ${p.supplier_name}`}
+                      {p.pay_source !== "cash_register" && ` · ${PAY_LABEL[p.pay_source]}`}
+                    </div>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+        {d && d.purchases.length === 0 && <p className="mt-2 px-1 text-muted">Закупок за этот день нет.</p>}
       </section>
+
+      {/* ───── Касса ───── */}
       <section className="card mt-4">
-        <h2 className="text-lg font-semibold">Касса за день</h2>
-        <p className="mt-1 text-muted">Наличные в кассе, терминал, снял с карты — этап 1.</p>
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-bold">Касса за день</h2>
+          {enters && (
+            <button className="font-semibold text-primary underline" onClick={() => setOpen({ kind: "cash" })}>
+              {cashEntered ? "Изменить" : "Ввести"}
+            </button>
+          )}
+        </div>
+        {cashEntered && d?.cash ? (
+          <dl className="num mt-2 flex flex-col gap-1">
+            <Row label="Наличные в кассе" value={formatMoney(d.cash.cash_evening_kop!)} />
+            <Row label="Терминал" value={formatMoney(d.cash.terminal_kop!)} />
+            {d.cash.from_card_kop > 0 && <Row label="Снял с карты" value={formatMoney(d.cash.from_card_kop)} muted />}
+            {d.cash.taken_by_owner_kop > 0 && <Row label="Забрал себе" value={formatMoney(d.cash.taken_by_owner_kop)} muted />}
+            {d.cash.comment && <p className="text-sm text-muted">{d.cash.comment}</p>}
+          </dl>
+        ) : (
+          <p className="mt-1 text-muted">Не введена. Вечером пересчитайте наличные и введите терминал.</p>
+        )}
       </section>
+
+      {/* ───── Расходы и списания ───── */}
       <section className="card mt-4">
-        <h2 className="text-lg font-semibold">Расходы и списания</h2>
-        <p className="mt-1 text-muted">Этап 1.</p>
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-bold">Расходы</h2>
+          {enters && (
+            <button className="font-semibold text-primary underline" onClick={() => setOpen({ kind: "expense", editing: null })}>
+              + Расход
+            </button>
+          )}
+        </div>
+        <ul className="mt-1">
+          {d?.expenses.map((e) => (
+            <li key={e.id}>
+              <button
+                className="flex w-full justify-between gap-2 py-2 text-left"
+                onClick={() => enters && setOpen({ kind: "expense", editing: e })}
+              >
+                <span>
+                  {e.pending && "⏳ "}
+                  {e.category}
+                  {e.comment && <span className="text-muted"> · {e.comment}</span>}
+                  {!e.from_register && <span className="text-sm text-muted"> (не из кассы)</span>}
+                </span>
+                <span className="num font-semibold">{formatMoney(e.amount_kop)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        {d && d.expenses.length === 0 && <p className="text-muted">Расходов нет.</p>}
+
+        <div className="mt-4 flex items-baseline justify-between border-t border-line pt-3">
+          <h2 className="text-lg font-bold">Списания</h2>
+          {enters && (
+            <button className="font-semibold text-primary underline" disabled={!dir} onClick={() => setOpen({ kind: "writeoff" })}>
+              + Списание
+            </button>
+          )}
+        </div>
+        <ul className="mt-1">
+          {d?.writeoffs.map((w) => (
+            <li key={w.id} className="flex justify-between gap-2 py-2">
+              <span>
+                {w.pending && "⏳ "}
+                {w.product_name} · <span className="num">{formatQty(w.qty)}</span>
+                {w.reason && <span className="text-muted"> · {w.reason}</span>}
+              </span>
+              {w.sum_kop !== null && <span className="num font-semibold">{formatMoney(w.sum_kop)}</span>}
+            </li>
+          ))}
+        </ul>
+        {d && d.writeoffs.length === 0 && <p className="text-muted">Списаний нет.</p>}
+        {seesCosts && (
+          <p className="mt-2 text-sm text-muted">Расходы и списания не вычитаются из заработка дня.</p>
+        )}
       </section>
-    </main>
+
+      {open?.kind === "purchase" && dir && d && (
+        <PurchaseSheet
+          shop={shop}
+          day={day}
+          dir={dir}
+          dayRows={d.purchases}
+          editing={open.editing}
+          asSeller={!isOwner}
+          onClose={() => setOpen(null)}
+          onSaved={afterChange}
+          onDirectoryChange={setDir}
+        />
+      )}
+      {open?.kind === "cash" && d && (
+        <CashSheet
+          shop={shop}
+          day={day}
+          cash={d.cash}
+          prevEvening={d.prevEvening}
+          paidSuppliersCash={paidCash}
+          expensesCash={expensesCash}
+          onClose={() => setOpen(null)}
+          onSaved={afterChange}
+        />
+      )}
+      {open?.kind === "expense" && (
+        <ExpenseSheet
+          shop={shop}
+          day={day}
+          editing={open.editing}
+          canDelete={enters}
+          onClose={() => setOpen(null)}
+          onSaved={afterChange}
+        />
+      )}
+      {open?.kind === "writeoff" && dir && (
+        <WriteoffSheet
+          shop={shop}
+          day={day}
+          dir={dir}
+          seesCosts={seesCosts}
+          onClose={() => setOpen(null)}
+          onSaved={afterChange}
+        />
+      )}
+    </Shell>
   );
 }
 
-function Row({ label, value }: { label: string; value: number | undefined }) {
+function Row({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
   return (
-    <div className="flex justify-between gap-2">
+    <div className={`flex justify-between gap-2 ${muted ? "text-muted" : ""}`}>
       <dt className="text-muted">{label}</dt>
-      <dd className="font-semibold">{formatMoney(value ?? 0)}</dd>
-    </div>
-  );
-}
-
-function CashSummary({ t }: { t: DayTotals | null }) {
-  if (!t || !t.cash_entered) {
-    return <p className="alert alert-warn mt-4">Касса за этот день не введена.</p>;
-  }
-  const r = reconcile(
-    {
-      cashEvening: t.cash_evening_kop ?? 0,
-      cashMorning: t.cash_morning_kop,
-      terminal: t.terminal_kop ?? 0,
-      fromCard: t.from_card_kop,
-      takenByOwner: t.taken_by_owner_kop,
-      paidSuppliersCash: t.paid_suppliers_cash_kop,
-      expensesCash: t.expenses_cash_kop,
-    },
-    { sellTotal: t.sell_kop, soldOnCredit: t.sold_on_credit_kop, debtRepaid: t.debt_repaid_kop },
-  );
-  return (
-    <div className="num mt-4 border-t border-line pt-3 text-base">
-      <div className="flex justify-between">
-        <span className="text-muted">Выручка нал / терминал</span>
-        <span className="font-semibold">
-          {formatMoney(r.revenueCash)} / {formatMoney(t.terminal_kop ?? 0)}
-        </span>
-      </div>
-      <div className="flex justify-between">
-        <span className="text-muted">Сверка с приходом</span>
-        <span className={`font-semibold ${r.diff < 0 ? "text-bad" : "text-good"}`}>
-          {r.diff > 0 ? "+" : ""}
-          {formatMoney(r.diff)}
-        </span>
-      </div>
+      <dd className="font-semibold">{value}</dd>
     </div>
   );
 }

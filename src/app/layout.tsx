@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { ServiceWorker } from "@/components/service-worker";
+import { SessionGate } from "@/components/session";
 import "./globals.css";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin", "cyrillic"] });
@@ -27,7 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ru" className={`${inter.variable} antialiased`}>
       <body className="min-h-dvh">
-        {children}
+        <SessionGate>{children}</SessionGate>
         <ServiceWorker />
       </body>
     </html>
