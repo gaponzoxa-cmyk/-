@@ -16,6 +16,8 @@ import {
 import { addDays, formatDayLong, isIsoDate, kyivToday } from "@/lib/dates";
 import { humanError } from "@/lib/errors";
 import { formatMoney, formatPct, formatPrice, formatQty, markupPct, reconcile, UNIT_LABEL } from "@/lib/money";
+import { enqueue } from "@/lib/queue";
+import { seedRowsWithIds } from "@/lib/seed";
 import { CashSheet, ExpenseSheet, WriteoffSheet } from "./other-sheets";
 import { PurchaseSheet } from "./purchase-sheet";
 
@@ -77,6 +79,22 @@ export function DayScreen() {
     reload(false);
   }, [reload]);
 
+  // Разовое исправление (04.11.2026): у перенесённых позиций 1–4 ноября
+  // оплата была «из кассы», а владелец платит из вчерашней выручки.
+  useEffect(() => {
+    if (shop.role !== "owner") return;
+    const flag = `kassa-fix-seedpay:${shop.id}`;
+    try {
+      if (localStorage.getItem(flag)) return;
+      localStorage.setItem(flag, "1");
+    } catch {
+      return;
+    }
+    void seedRowsWithIds(shop.id).then((rows) => {
+      for (const r of rows) enqueue({ kind: "update", table: "purchases", id: r.id, patch: { pay_source: "own" } });
+    });
+  }, [shop.id, shop.role]);
+
   // когда очередь опустела — перечитываем с сервера (там точные суммы)
   const { pending } = useQueue();
   const hadPending = useRef(false);
@@ -105,7 +123,7 @@ export function DayScreen() {
       ? reconcile(
           {
             cashEvening: d.cash!.cash_evening_kop!,
-            cashMorning: d.cash!.cash_morning_kop ?? d.prevEvening ?? 0,
+            cashMorning: d.cash!.cash_morning_kop ?? 0,
             terminal: d.cash!.terminal_kop!,
             fromCard: d.cash!.from_card_kop,
             takenByOwner: d.cash!.taken_by_owner_kop,
@@ -167,7 +185,9 @@ export function DayScreen() {
                 </summary>
                 <div className="mt-2 flex flex-col gap-0.5 rounded-xl bg-bg p-3 text-sm">
                   <Row label="Наличные в кассе вечером" value={formatMoney(d.cash.cash_evening_kop!)} />
-                  <Row label="− было утром" value={formatMoney(d.cash.cash_morning_kop ?? d.prevEvening ?? 0)} muted />
+                  {(d.cash.cash_morning_kop ?? 0) > 0 && (
+                    <Row label="− было утром (размен)" value={formatMoney(d.cash.cash_morning_kop ?? 0)} muted />
+                  )}
                   {d.cash.from_card_kop > 0 && <Row label="− положил с карты" value={formatMoney(d.cash.from_card_kop)} muted />}
                   {paidCash > 0 && <Row label="+ отдано поставщикам из кассы" value={formatMoney(paidCash)} muted />}
                   {expensesCash > 0 && <Row label="+ расходы из кассы" value={formatMoney(expensesCash)} muted />}
@@ -184,8 +204,8 @@ export function DayScreen() {
                     </span>
                   </div>
                   <p className="mt-1 text-muted">
-                    Закупки с оплатой «Нал из кассы» считаются отданными из кассы. Если платили не из кассы — откройте
-                    позицию и смените оплату.
+                    Приход — это товар, купленный сегодня, по цене продажи. Часть его продастся завтра, поэтому
+                    небольшая разница нормальна. Закупки с оплатой «Из кассы» прибавляются к выручке.
                   </p>
                 </div>
               </details>
@@ -238,7 +258,7 @@ export function DayScreen() {
                     <div className="num text-sm text-muted">
                       {formatMoney(p.buy_sum_kop ?? 0)} → {formatMoney(p.sell_sum_kop)}
                       {p.supplier_name && ` · ${p.supplier_name}`}
-                      {p.pay_source !== "cash_register" && ` · ${PAY_LABEL[p.pay_source]}`}
+                      {p.pay_source !== "own" && ` · ${PAY_LABEL[p.pay_source]}`}
                     </div>
                   )}
                 </button>
@@ -346,7 +366,6 @@ export function DayScreen() {
           shop={shop}
           day={day}
           cash={d.cash}
-          prevEvening={d.prevEvening}
           paidSuppliersCash={paidCash}
           expensesCash={expensesCash}
           onClose={() => setOpen(null)}

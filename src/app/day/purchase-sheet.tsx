@@ -8,6 +8,7 @@ import {
   createProduct,
   createSupplier,
   findByName,
+  PAY_HINT,
   PAY_LABEL,
   productHistory,
   savePurchase,
@@ -57,7 +58,7 @@ const EMPTY: Form = {
   sell: "",
   sellTouched: false,
   supplier: "",
-  pay: "cash_register",
+  pay: "own",
   comment: "",
 };
 
@@ -382,6 +383,7 @@ export function PurchaseSheet({
           onChange={(pay) => setF((cur) => ({ ...cur, pay }))}
           options={(Object.keys(PAY_LABEL) as PaySource[]).map((v) => ({ value: v, label: PAY_LABEL[v] }))}
         />
+        <p className="-mt-2 text-sm text-muted">{PAY_HINT}</p>
 
         <label className="field">
           <span>Комментарий (необязательно)</span>

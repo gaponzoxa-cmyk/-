@@ -31,3 +31,15 @@ export function seedRows(): ImportRow[] {
     };
   });
 }
+
+/** Позиции с постоянными id (одни и те же при каждом переносе — без дублей). */
+export async function seedRowsWithIds(shopId: string) {
+  const { stableId } = await import("./ids");
+  const pos: Record<string, number> = {};
+  const out: (ImportRow & { id: string; position: number })[] = [];
+  for (const r of seedRows()) {
+    pos[r.date] = (pos[r.date] ?? 0) + 1;
+    out.push({ ...r, position: pos[r.date], id: await stableId(`seed-2026-11:${shopId}:${r.date}:${pos[r.date]}:${r.name}`) });
+  }
+  return out;
+}

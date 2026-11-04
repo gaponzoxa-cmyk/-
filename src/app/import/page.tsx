@@ -7,10 +7,9 @@ import { Shell } from "@/components/shell";
 import { createProduct, findByName, loadDirectory, qtyToDb } from "@/lib/data";
 import { formatDayShort, kyivToday } from "@/lib/dates";
 import { humanError } from "@/lib/errors";
-import { stableId } from "@/lib/ids";
 import { dayPurchaseTotals, formatMoney, formatPrice, formatQty, UNIT_LABEL } from "@/lib/money";
 import { enqueue } from "@/lib/queue";
-import { SEED_CONTROL, seedRows } from "@/lib/seed";
+import { SEED_CONTROL, seedRows, seedRowsWithIds } from "@/lib/seed";
 import { supabase } from "@/lib/supabase";
 
 const DAYS = Object.keys(SEED_CONTROL);
@@ -49,32 +48,28 @@ export default function ImportPage() {
     setError(null);
     try {
       let dir = await loadDirectory(shop.id, true, kyivToday());
-      const pos: Record<string, number> = {};
-      for (let i = 0; i < rows.length; i++) {
-        const r = rows[i];
+      for (const r of await seedRowsWithIds(shop.id)) {
         let product = findByName(dir.products, r.name);
         if (!product) {
           product = createProduct(shop.id, r.name, r.unit);
           dir = { ...dir, products: [...dir.products, product] };
         }
-        pos[r.date] = (pos[r.date] ?? 0) + 1;
-        const id = await stableId(`seed-2026-11:${shop.id}:${r.date}:${pos[r.date]}:${r.name}`);
         enqueue(
           {
             kind: "insert",
             table: "purchases",
             row: {
-              id,
+              id: r.id,
               shop_id: shop.id,
               day: r.date,
-              position: pos[r.date],
+              position: r.position,
               product_id: product.id,
               qty: qtyToDb(r.qty),
               unit: r.unit,
               buy_input: "price",
               buy_price_kop: r.buyPrice,
               sell_price_kop: r.sellPrice,
-              pay_source: "cash_register",
+              pay_source: "own",
               comment: r.note ?? null,
             },
           },

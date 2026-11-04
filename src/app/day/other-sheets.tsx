@@ -26,7 +26,6 @@ export function CashSheet({
   shop,
   day,
   cash,
-  prevEvening,
   paidSuppliersCash,
   expensesCash,
   onClose,
@@ -35,7 +34,6 @@ export function CashSheet({
   shop: Shop;
   day: string;
   cash: CashDay | null;
-  prevEvening: Kop | null;
   paidSuppliersCash: Kop;
   expensesCash: Kop;
   onClose: () => void;
@@ -55,7 +53,7 @@ export function CashSheet({
 
   const ev = parseMoney(evening);
   const te = parseMoney(terminal);
-  const mo = morning.trim() ? parseMoney(morning) : prevEvening;
+  const mo = morning.trim() ? parseMoney(morning) : 0;
   const fc = parseMoney(fromCard) ?? 0;
   const tk = parseMoney(taken) ?? 0;
   const rev =
@@ -79,7 +77,8 @@ export function CashSheet({
     saveCash(shop.id, day, {
       cash_evening_kop: ev,
       terminal_kop: te,
-      cash_morning_kop: morning.trim() ? parseMoney(morning) : null,
+      // каждый день считается отдельно: если размен не указан — утром было 0
+      cash_morning_kop: morning.trim() ? parseMoney(morning) : 0,
       from_card_kop: fc,
       taken_by_owner_kop: tk,
       comment: comment.trim() || null,
@@ -102,21 +101,15 @@ export function CashSheet({
         <NumField label="Снял с карты и положил в кассу" value={fromCard} onChange={setFromCard} suffix="₴" placeholder="0" inputRef={cardRef} onEnter={focusTaken} />
         <NumField label="Забрал из кассы себе" value={taken} onChange={setTaken} suffix="₴" placeholder="0" inputRef={takenRef} onEnter={focusMorn} />
         <NumField
-          label="Утром в кассе было"
+          label="Утром в кассе было (размен)"
           value={morning}
           onChange={setMorning}
           suffix="₴"
           inputRef={mornRef}
           enterKeyHint="done"
           onEnter={save}
-          placeholder={prevEvening !== null ? moneyStr(prevEvening) : "0"}
-          hint={
-            <span className="text-muted">
-              {prevEvening !== null
-                ? `Если пусто — берём вчерашний вечер: ${formatMoney(prevEvening)}.`
-                : "Первый день учёта: введите, сколько было утром (размен)."}
-            </span>
-          }
+          placeholder="0"
+          hint={<span className="text-muted">Если утром ящик пустой — оставьте пустым.</span>}
         />
         <label className="field">
           <span>Комментарий (необязательно)</span>
@@ -124,8 +117,8 @@ export function CashSheet({
         </label>
 
         <div className="card num">
-          <Row label="Отдано поставщикам из кассы" value={formatMoney(paidSuppliersCash)} />
-          <Row label="Расходы из кассы" value={formatMoney(expensesCash)} />
+          {paidSuppliersCash > 0 && <Row label="Отдано поставщикам из кассы" value={formatMoney(paidSuppliersCash)} />}
+          {expensesCash > 0 && <Row label="Расходы из кассы" value={formatMoney(expensesCash)} />}
           <Row label="Выручка наличными" value={rev !== null ? formatMoney(rev) : "—"} strong />
           <Row label="Выручка всего (+ терминал)" value={rev !== null ? formatMoney(rev + (te ?? 0)) : "—"} strong />
           {rev !== null && rev < 0 && (

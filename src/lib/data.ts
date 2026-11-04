@@ -12,11 +12,14 @@ import { enqueue, newId, pendingOps } from "./queue";
 import { supabase } from "./supabase";
 
 export type PaySource = "cash_register" | "own" | "card";
+/** Порядок важен: так показываются кнопки в форме. */
 export const PAY_LABEL: Record<PaySource, string> = {
-  cash_register: "Нал из кассы",
-  own: "Свои",
+  own: "Наличные",
+  cash_register: "Из кассы",
   card: "Карта",
 };
+export const PAY_HINT =
+  "«Наличные» — из вчерашней выручки или своих. «Из кассы» — взяли из сегодняшнего ящика (учтётся в сверке).";
 
 export type Product = {
   id: string;
