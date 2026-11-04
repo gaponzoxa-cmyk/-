@@ -181,3 +181,15 @@ describe("даты (Киев)", () => {
     expect(isIsoDate("2026-02-30")).toBe(false);
   });
 });
+
+describe("импорт 1–4 ноября с исправлениями", async () => {
+  const { seedRows, SEED_CONTROL } = await import("../src/lib/seed");
+  it("яйцо стало штуками, итоги совпадают с таблицей", () => {
+    const rows = seedRows();
+    expect(rows.find((r) => r.name === "Яйцо")?.unit).toBe("pcs");
+    for (const [day, c] of Object.entries(SEED_CONTROL)) {
+      const t = dayPurchaseTotals(rows.filter((r) => r.date === day));
+      expect(t).toEqual({ count: c.count, buy: c.buy, sell: c.sell, profit: c.profit });
+    }
+  });
+});

@@ -104,13 +104,18 @@ function BottomNav() {
   const items = [
     { href: "/", label: "День", icon: "📋" },
     { href: "/month", label: "Месяц", icon: "📅" },
-    { href: "/trash", label: "Корзина", icon: "🗑" },
+    { href: "/more", label: "Ещё", icon: "☰" },
   ];
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-card pb-[env(safe-area-inset-bottom)]">
       <div className="mx-auto flex max-w-md">
         {items.map((i) => {
-          const active = i.href === "/" ? path === "/" : path.startsWith(i.href);
+          const active =
+            i.href === "/"
+              ? path === "/"
+              : i.href === "/more"
+                ? ["/more", "/trash", "/import"].some((p) => path.startsWith(p))
+                : path.startsWith(i.href);
           return (
             <Link
               key={i.href}
