@@ -152,17 +152,43 @@ export function DayScreen() {
             <Row label="Позиций" value={String(d?.purchases.length ?? 0)} muted />
           </dl>
           {d && !cashEntered && <p className="alert alert-warn mt-3">Касса за этот день не введена.</p>}
-          {rec && (
+          {rec && d?.cash && (
             <div className="num mt-3 border-t border-line pt-3">
-              <Row label="Касса: нал / терминал" value={`${formatMoney(rec.revenueCash)} / ${formatMoney(d!.cash!.terminal_kop!)}`} />
-              <Row label="Касса всего" value={formatMoney(rec.revenueTotal)} />
-              <div className="flex justify-between gap-2">
-                <dt className="text-muted">Сверка с приходом</dt>
-                <dd className={`font-bold ${rec.diff < 0 ? "text-bad" : "text-good"}`}>
-                  {rec.diff > 0 ? "+" : ""}
-                  {formatMoney(rec.diff)} ({rec.diffPct !== null ? formatPct(rec.diffPct) : "—"})
-                </dd>
-              </div>
+              <Row label="Наличные в кассе" value={formatMoney(d.cash.cash_evening_kop!)} />
+              <Row label="Терминал" value={formatMoney(d.cash.terminal_kop!)} />
+              <Row label="Касса (нал + терминал)" value={formatMoney(d.cash.cash_evening_kop! + d.cash.terminal_kop!)} />
+              <details className="mt-2">
+                <summary className="flex cursor-pointer justify-between gap-2">
+                  <span className="text-muted underline">Сверка выручки с приходом</span>
+                  <span className={`font-bold ${rec.diff < 0 ? "text-bad" : "text-good"}`}>
+                    {rec.diff > 0 ? "+" : ""}
+                    {formatMoney(rec.diff)}
+                  </span>
+                </summary>
+                <div className="mt-2 flex flex-col gap-0.5 rounded-xl bg-bg p-3 text-sm">
+                  <Row label="Наличные в кассе вечером" value={formatMoney(d.cash.cash_evening_kop!)} />
+                  <Row label="− было утром" value={formatMoney(d.cash.cash_morning_kop ?? d.prevEvening ?? 0)} muted />
+                  {d.cash.from_card_kop > 0 && <Row label="− положил с карты" value={formatMoney(d.cash.from_card_kop)} muted />}
+                  {paidCash > 0 && <Row label="+ отдано поставщикам из кассы" value={formatMoney(paidCash)} muted />}
+                  {expensesCash > 0 && <Row label="+ расходы из кассы" value={formatMoney(expensesCash)} muted />}
+                  {d.cash.taken_by_owner_kop > 0 && <Row label="+ забрал себе" value={formatMoney(d.cash.taken_by_owner_kop)} muted />}
+                  <Row label="= выручка наличными" value={formatMoney(rec.revenueCash)} />
+                  <Row label="+ терминал" value={formatMoney(d.cash.terminal_kop!)} muted />
+                  <Row label="= выручка за день" value={formatMoney(rec.revenueTotal)} />
+                  <Row label="Приход (товар по цене продажи)" value={formatMoney(rec.expected)} />
+                  <div className="flex justify-between gap-2 font-bold">
+                    <span>Разница</span>
+                    <span className={rec.diff < 0 ? "text-bad" : "text-good"}>
+                      {rec.diff > 0 ? "+" : ""}
+                      {formatMoney(rec.diff)} ({rec.diffPct !== null ? formatPct(rec.diffPct) : "—"})
+                    </span>
+                  </div>
+                  <p className="mt-1 text-muted">
+                    Закупки с оплатой «Нал из кассы» считаются отданными из кассы. Если платили не из кассы — откройте
+                    позицию и смените оплату.
+                  </p>
+                </div>
+              </details>
             </div>
           )}
         </section>
