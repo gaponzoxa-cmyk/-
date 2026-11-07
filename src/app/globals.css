@@ -134,3 +134,19 @@ body {
     color: var(--warn);
   }
 }
+
+/* Печать накладной: только сама накладная, чёрным по белому */
+@media print {
+  .no-print,
+  nav {
+    display: none !important;
+  }
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .card {
+    background: #fff !important;
+  }
+}

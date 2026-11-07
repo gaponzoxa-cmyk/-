@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { canEnter, canSeeCosts, useApp } from "@/components/session";
@@ -218,7 +219,14 @@ export function DayScreen() {
       <section className="mt-4">
         <div className="flex items-baseline justify-between px-1">
           <h2 className="text-lg font-bold">Приход товара</h2>
-          <span className="text-sm text-muted">{d?.purchases.length ?? 0} поз.</span>
+          <span className="flex items-baseline gap-3 text-sm text-muted">
+            {d?.purchases.length ?? 0} поз.
+            {d && d.purchases.length > 0 && (
+              <Link href={`/invoice?d=${day}`} className="font-semibold text-primary underline">
+                🧾 Накладная
+              </Link>
+            )}
+          </span>
         </div>
         {enters && (
           <button
